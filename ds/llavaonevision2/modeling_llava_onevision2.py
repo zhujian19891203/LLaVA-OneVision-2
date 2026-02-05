@@ -382,6 +382,140 @@ def convert_rope_to_block_layout(
 
     return freqs
 
+
+def convert_rope_to_block_layout_by_positions(
+    freqs: torch.Tensor,
+    patch_positions: torch.Tensor,
+    spatial_merge_size: int = 2,
+    grid_thw: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Convert RoPE from row-major order to 2x2 block layout, grouping by temporal index.
+
+    This function automatically groups patches by their temporal index (t) from patch_positions,
+    then applies 2x2 spatial reordering within each temporal group.
+
+    Optimized version: if all frames have the same spatial size, use vectorized operations.
+
+    Args:
+        freqs: RoPE frequencies in row-major order, shape [seq_len, half]
+        patch_positions: Patch positions tensor, shape [seq_len, 3] with [t, h, w] for each patch
+        spatial_merge_size: size of spatial merge blocks (default: 2)
+        grid_thw: Optional grid_thw tensor for reliable h, w extraction
+
+    Returns:
+        torch.Tensor: RoPE frequencies in 2x2 block order, same shape [seq_len, half]
+    """
+    sms = spatial_merge_size
+    if sms == 1:
+        return freqs
+
+    half = freqs.shape[-1]
+    seq_len = freqs.shape[0]
+
+    # Get temporal indices
+    t_indices = patch_positions[:, 0]
+
+    # Find unique t values and their counts (preserving order)
+    unique_t, inverse_indices, counts = torch.unique_consecutive(
+        t_indices, return_inverse=True, return_counts=True
+    )
+
+    num_groups = unique_t.shape[0]
+
+    # Fast path: single image with grid_thw available
+    if num_groups == 1 and grid_thw is not None:
+        height = grid_thw[0, 1].item()
+        width = grid_thw[0, 2].item()
+        return convert_rope_to_block_layout(freqs, t=1, h=height, w=width, spatial_merge_size=sms)
+
+    # Fast path: single image, square
+    if num_groups == 1:
+        hw = int(seq_len ** 0.5)
+        if hw * hw == seq_len:
+            return convert_rope_to_block_layout(freqs, t=1, h=hw, w=hw, spatial_merge_size=sms)
+
+    # Check if all groups have the same size (common case for videos)
+    # This allows vectorized processing
+    first_count = counts[0].item()
+    all_same_size = torch.all(counts == first_count).item()
+
+    if all_same_size:
+        # Vectorized path: all frames have same spatial size
+        group_size = first_count
+        hw = int(group_size ** 0.5)
+
+        if hw * hw == group_size:
+            # Square frames: use fully vectorized convert_rope_to_block_layout
+            # Reshape freqs to [num_groups, h, w, half] and process as batch
+            return convert_rope_to_block_layout(
+                freqs, t=num_groups, h=hw, w=hw, spatial_merge_size=sms
+            )
+        elif grid_thw is not None:
+            # Non-square but have grid_thw: get h, w from grid_thw
+            height = grid_thw[0, 1].item()
+            width = grid_thw[0, 2].item()
+            return convert_rope_to_block_layout(
+                freqs, t=num_groups, h=height, w=width, spatial_merge_size=sms
+            )
+
+    # Slow path: variable frame sizes, process each group separately
+    # Pre-compute cumulative offsets to avoid repeated slicing
+    cum_counts = torch.cumsum(counts, dim=0)
+    start_indices = torch.cat([torch.tensor([0], device=counts.device), cum_counts[:-1]])
+
+    result_freqs = torch.empty_like(freqs)
+
+    for group_idx in range(num_groups):
+        start_idx = start_indices[group_idx].item()
+        group_size = counts[group_idx].item()
+        end_idx = start_idx + group_size
+
+        # Infer spatial dimensions
+        hw = int(group_size ** 0.5)
+        if hw * hw == group_size:
+            h, w = hw, hw
+        else:
+            h, w = _infer_hw_from_positions(patch_positions[start_idx:end_idx], sms)
+
+        # Apply block layout conversion
+        result_freqs[start_idx:end_idx] = convert_rope_to_block_layout(
+            freqs[start_idx:end_idx], t=1, h=h, w=w, spatial_merge_size=sms
+        )
+
+    return result_freqs
+
+
+def _infer_hw_from_positions(
+    group_positions: torch.Tensor,
+    spatial_merge_size: int = 2
+) -> tuple[int, int]:
+    """
+    Infer height and width from patch positions within a temporal group.
+
+    Args:
+        group_positions: Patch positions for one temporal group, shape [group_size, 3]
+        spatial_merge_size: size of spatial merge blocks
+
+    Returns:
+        tuple[int, int]: (height, width) of the spatial grid
+    """
+    # Get unique h and w values
+    h_values = group_positions[:, 1]
+    w_values = group_positions[:, 2]
+
+    h_unique = torch.unique(h_values)
+    w_unique = torch.unique(w_values)
+
+    h = h_unique.shape[0]
+    w = w_unique.shape[0]
+
+    # Validate dimensions are divisible by spatial_merge_size
+    assert h % spatial_merge_size == 0, f"Height {h} not divisible by {spatial_merge_size}"
+    assert w % spatial_merge_size == 0, f"Width {w} not divisible by {spatial_merge_size}"
+
+    return h, w
+
 class LlavaViTFlashAttention2(nn.Module):
     """
     Multi-headed attention with RoPE support using Flash Attention 2.
@@ -644,102 +778,6 @@ class Siglip2MultiheadAttentionPoolingHead(nn.Module):
 
         return attn_output[:, 0]
 
-
-def interpolate_frame_indices(
-    frame_indices: torch.Tensor, total_frames: torch.Tensor, target_frames: int = 64
-) -> torch.Tensor:
-    """
-    Interpolate frame indices from the original video frame count to the target frame count.
-
-    Args:
-        frame_indices: [B, seq_len] Original frame indices
-        total_frames: [B] Total number of frames for each video
-        target_frames: Target number of frames (default: 64)
-
-    Returns:
-        interpolated_indices: [B, seq_len] Interpolated frame indices, range in [0, target_frames-1]
-    """
-    bs, seq_len = frame_indices.shape
-
-    # Convert total_frames to float for interpolation calculation
-    total_frames_float = total_frames.float().view(bs, 1)  # [B, 1]
-    frame_indices_float = frame_indices.float()  # [B, seq_len]
-
-    # Interpolation formula: new_idx = (old_idx / (total_frames - 1)) * (target_frames - 1)
-    total_frames_safe = torch.clamp(total_frames_float - 1, min=1.0)
-    interpolated_indices = (frame_indices_float / total_frames_safe) * (target_frames - 1)
-
-    # Round and convert to integer
-    interpolated_indices = torch.round(interpolated_indices).long()
-
-    # Ensure indices are within valid range
-    interpolated_indices = torch.clamp(interpolated_indices, 0, target_frames - 1)
-
-    return interpolated_indices
-
-
-def compute_patch_positions_from_grid_thw(grid_thw: torch.Tensor) -> torch.Tensor:
-    """
-    Compute patch positions from grid_thw for RoPE calculation.
-
-    Args:
-        grid_thw: [num_samples, 3] tensor with [t, h, w] for each sample
-
-    Returns:
-        patch_positions: [total_seq_len, 3] tensor with [t, h, w] position for each patch
-    """
-    device = grid_thw.device
-    all_positions = []
-
-    for sample_thw in grid_thw:
-        t, h, w = sample_thw[0].item(), sample_thw[1].item(), sample_thw[2].item()
-
-        # Build position indices
-        t_ids = torch.arange(t, device=device).repeat_interleave(h * w)
-        h_ids = torch.arange(h, device=device).repeat_interleave(w).repeat(t)
-        w_ids = torch.arange(w, device=device).repeat(h).repeat(t)
-
-        positions = torch.stack([t_ids, h_ids, w_ids], dim=-1)  # [t*h*w, 3]
-        all_positions.append(positions)
-
-    return torch.cat(all_positions, dim=0)
-
-
-def compute_patch_positions_with_interpolated_temporal(
-    interpolated_indices: torch.Tensor, h_patches: int, w_patches: int, device: torch.device
-) -> torch.Tensor:
-    """
-    Compute patch positions with interpolated temporal positions for RoPE.
-
-    This function computes patch positions where the temporal positions are
-    based on the interpolated frame indices.
-
-    Args:
-        interpolated_indices: [B, num_frames] Interpolated frame indices in 64-frame context
-        h_patches: Number of patches in height dimension
-        w_patches: Number of patches in width dimension
-        device: Target device
-
-    Returns:
-        visible_indices: Tensor of shape (B, total_patches) with flattened patch indices
-    """
-    num_patches_per_frame = h_patches * w_patches
-    B, T = interpolated_indices.shape
-    visible_indices = []
-
-    for b in range(B):
-        indices_b = []
-        for t in range(T):
-            t_new = interpolated_indices[b, t].item()
-            for p in range(num_patches_per_frame):
-                idx = t_new * num_patches_per_frame + p
-                indices_b.append(idx)
-        visible_indices.append(indices_b)
-
-    visible_indices = torch.tensor(visible_indices, device=device, dtype=torch.long)
-    return visible_indices
-
-
 # ---------------------------------------------------------------------------
 # Vision Model
 # ---------------------------------------------------------------------------
@@ -752,7 +790,7 @@ class LlavaOnevision2VisionPretrainedModel(LlavaOnevision2PreTrainedModel):
     This vision model is designed to work with Qwen2VL-style image processing:
         - Receives pre-processed patches in 2x2 block spatial order
         - Applies RoPE with matching 2x2 block layout conversion
-        - Supports visible_indices for sparse patch selection (video)
+        - Accepts explicit patch_positions for RoPE computation
 
     Input format:
         hidden_state: [total_patches, num_channels, patch_size, patch_size]
@@ -791,7 +829,7 @@ class LlavaOnevision2VisionPretrainedModel(LlavaOnevision2PreTrainedModel):
         self,
         hidden_state: torch.Tensor,
         grid_thw: Optional[torch.Tensor] = None,
-        visible_indices: Optional[torch.Tensor] = None,
+        patch_positions: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
@@ -809,7 +847,7 @@ class LlavaOnevision2VisionPretrainedModel(LlavaOnevision2PreTrainedModel):
                 Shape: [total_patches, num_channels, patch_size, patch_size]
             grid_thw: Grid sizes tensor of shape [num_samples, 3] with [t, h, w] for each sample.
                 Required for computing RoPE and handling visible indices.
-            visible_indices: Optional indices for sparse patch selection (for video).
+            patch_positions: Optional explicit patch positions for RoPE computation.
             output_attentions: Whether to return attention weights.
             output_hidden_states: Whether to return all hidden states.
             return_dict: Whether to return a ModelOutput instead of tuple.
@@ -828,14 +866,6 @@ class LlavaOnevision2VisionPretrainedModel(LlavaOnevision2PreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else getattr(self.config, "use_return_dict", True)
 
-        batch_size = grid_thw.size(0)
-        assert batch_size == 1, "Currently only batch_size=1 is supported."
-
-        # Determine video dimensions for RoPE
-        t_frames = grid_thw[0, 0].item()
-        height = grid_thw[0, 1].item()
-        width = grid_thw[0, 2].item()
-
         # 1. Embeddings
         # Note: embeddings returns [total_patches, embed_dim], we need to add batch dimension
         hidden_states = self.embeddings(hidden_state)
@@ -843,63 +873,35 @@ class LlavaOnevision2VisionPretrainedModel(LlavaOnevision2PreTrainedModel):
             hidden_states = hidden_states.unsqueeze(0)  # [1, total_patches, embed_dim]
         batch_size, total_patches, _ = hidden_states.shape
 
-        # 2. Visible Indices Handling
-        if visible_indices is None or (isinstance(visible_indices, list) and visible_indices[0] is None):
-            if t_frames == 1:
-                visible_indices = (
-                    torch.arange(total_patches, device=hidden_state.device).unsqueeze(0).expand(batch_size, -1)
-                )
-            else:
-                # Compute interpolated frame indices for video
-                frame_indices = torch.arange(t_frames).unsqueeze(0).to(hidden_state.device)
-                total_frames_tensor = torch.tensor([t_frames]).to(hidden_state.device)
-                interpolated_indices = interpolate_frame_indices(frame_indices, total_frames_tensor, 64)
-                visible_indices = compute_patch_positions_with_interpolated_temporal(
-                    interpolated_indices,
-                    height,
-                    width,
-                    hidden_state.device,
-                )
+        # 2. RoPE Construction
+        # Get dimensions from grid_thw for block layout conversion
+        if grid_thw is not None:
+            t_frames = grid_thw[0, 0].item()
+            height = grid_thw[0, 1].item()
+            width = grid_thw[0, 2].item()
         else:
-            # Handle visible_indices as list
-            if isinstance(visible_indices, list):
-                if len(visible_indices) == 1:
-                    visible_indices = visible_indices[0]
-                    if not isinstance(visible_indices, torch.Tensor):
-                        visible_indices = torch.tensor(visible_indices, device=hidden_state.device)
-                    if visible_indices.dim() == 1:
-                        visible_indices = visible_indices.unsqueeze(0)
-                else:
-                    visible_indices = torch.stack(
-                        [v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in visible_indices]
-                    )
-            elif not isinstance(visible_indices, torch.Tensor):
-                visible_indices = torch.tensor(visible_indices, device=hidden_state.device)
+            # Fallback: infer from total_patches (assume single frame, square)
+            t_frames = 1
+            height = int(total_patches ** 0.5)
+            width = height
 
-            visible_indices = visible_indices.to(hidden_state.device)
-
-        # Gather visible patches for images (t_frames == 1)
-        if t_frames == 1:
-            gather_index = visible_indices.unsqueeze(-1).expand(-1, -1, self.config.hidden_size)
-            hidden_states = torch.gather(hidden_states, 1, gather_index)
-
-        # 3. RoPE Construction
-        # Generate RoPE in row-major order, then convert to block layout to match Qwen2VL input
-        freqs_full = self.video_rope.forward_with_thw(
-            t=64 if t_frames > 1 else 1,
-            h=height,
-            w=width,
-            device=hidden_state.device,
-        )
+        if patch_positions is not None and patch_positions.dim() == 3:
+            patch_positions = patch_positions.squeeze(0)
+        freqs_visible = self.video_rope.forward_from_positions(patch_positions)
 
         # Convert RoPE from row-major to block layout (matching Qwen2VL processor output)
-        # Must be done BEFORE indexing with visible_indices
-        freqs_full_block = convert_rope_to_block_layout(freqs_full, 1 if t_frames == 1 else 64, height, width, spatial_merge_size=2).unsqueeze(0)
+        # Use position-based grouping for videos with variable frame sizes
+        # Pass grid_thw for reliable h, w extraction (especially for non-square images)
+        freqs_visible = convert_rope_to_block_layout_by_positions(
+            freqs_visible, patch_positions, spatial_merge_size=2, grid_thw=grid_thw
+        )
 
         # Concatenate D/2 + D/2 -> D for applying rope
-        freqs_visible = torch.cat([freqs_full_block, freqs_full_block], dim=-1)
+        freqs_visible = torch.cat([freqs_visible, freqs_visible], dim=-1)
+        if freqs_visible.dim() == 2:
+            freqs_visible = freqs_visible.unsqueeze(0)
 
-        # 4. Pre-Norm & Encoder
+        # 3. Pre-Norm & Encoder
         hidden_states = self.layernorm_pre(hidden_states)
 
         encoder_outputs = self.encoder(
@@ -1084,7 +1086,7 @@ class LlavaOnevision2Model(LlavaOnevision2PreTrainedModel):
         return self.language_model
 
     def get_video_features(
-        self, pixel_values_videos: torch.FloatTensor, video_grid_thw: Optional[torch.LongTensor] = None
+        self, pixel_values_videos: torch.FloatTensor, video_grid_thw: Optional[torch.LongTensor] = None, patch_positions=None
     ):
         """
         Encodes videos into continuous embeddings that can be forwarded to the language model.
@@ -1099,7 +1101,7 @@ class LlavaOnevision2Model(LlavaOnevision2PreTrainedModel):
         pixel_values_videos = pixel_values_videos.type(self.visual.embeddings.patch_embedding.weight.dtype)
 
         # Forward through vision model with grid_thw
-        vision_output = self.visual(pixel_values_videos, grid_thw=video_grid_thw, visible_indices=None)
+        vision_output = self.visual(pixel_values_videos, grid_thw=video_grid_thw, patch_positions=patch_positions)
 
         # Extract the actual tensor from BaseModelOutputWithPooling
         if hasattr(vision_output, "last_hidden_state"):
@@ -1123,7 +1125,7 @@ class LlavaOnevision2Model(LlavaOnevision2PreTrainedModel):
 
         return video_embeds
 
-    def get_image_features(self, pixel_values, image_grid_thw: Optional[torch.LongTensor] = None):
+    def get_image_features(self, pixel_values, image_grid_thw: Optional[torch.LongTensor] = None, patch_positions=None):
         """
         Encodes images into continuous embeddings that can be forwarded to the language model.
 
@@ -1139,7 +1141,7 @@ class LlavaOnevision2Model(LlavaOnevision2PreTrainedModel):
             pixel_values = pixel_values.type(self.visual.embeddings.patch_embedding.weight.dtype)
 
             # Forward through vision model with grid_thw
-            vision_output = self.visual(pixel_values, grid_thw=image_grid_thw, visible_indices=None)
+            vision_output = self.visual(pixel_values, grid_thw=image_grid_thw, patch_positions=patch_positions)
 
             # Extract the actual tensor from BaseModelOutputWithPooling
             if hasattr(vision_output, "last_hidden_state"):
@@ -1223,6 +1225,7 @@ class LlavaOnevision2Model(LlavaOnevision2PreTrainedModel):
         pixel_values: Optional[torch.Tensor] = None,
         pixel_values_videos: Optional[torch.FloatTensor] = None,
         image_grid_thw: Optional[torch.LongTensor] = None,
+        patch_positions: Optional[torch.LongTensor] = None,
         video_grid_thw: Optional[torch.LongTensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
         second_per_grid_ts: Optional[torch.Tensor] = None,
@@ -1248,7 +1251,7 @@ class LlavaOnevision2Model(LlavaOnevision2PreTrainedModel):
         image_embeds = None
 
         if pixel_values is not None:
-            image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+            image_embeds = self.get_image_features(pixel_values, image_grid_thw, patch_positions=patch_positions)
 
         if image_embeds is not None:
             image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
@@ -1364,6 +1367,7 @@ class LlavaOnevision2ForConditionalGeneration(LlavaOnevision2PreTrainedModel, Ge
         pixel_values: Optional[torch.Tensor] = None,
         pixel_values_videos: Optional[torch.FloatTensor] = None,
         image_grid_thw: Optional[torch.LongTensor] = None,
+        patch_positions: Optional[torch.LongTensor] = None,
         video_grid_thw: Optional[torch.LongTensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
         second_per_grid_ts: Optional[torch.Tensor] = None,
@@ -1412,7 +1416,6 @@ class LlavaOnevision2ForConditionalGeneration(LlavaOnevision2PreTrainedModel, Ge
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "The image shows a street scene with a red stop sign in the foreground. In the background, there is a large red gate with Chinese characters ..."
         ```"""
-
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -1422,6 +1425,7 @@ class LlavaOnevision2ForConditionalGeneration(LlavaOnevision2PreTrainedModel, Ge
             pixel_values=pixel_values,
             pixel_values_videos=pixel_values_videos,
             image_grid_thw=image_grid_thw,
+            patch_positions=patch_positions,
             video_grid_thw=video_grid_thw,
             second_per_grid_ts=second_per_grid_ts,
             position_ids=position_ids,
@@ -1468,6 +1472,7 @@ class LlavaOnevision2ForConditionalGeneration(LlavaOnevision2PreTrainedModel, Ge
         pixel_values=None,
         pixel_values_videos=None,
         image_grid_thw=None,
+        patch_positions=None,
         video_grid_thw=None,
         second_per_grid_ts=None,
         **kwargs,
@@ -1485,6 +1490,7 @@ class LlavaOnevision2ForConditionalGeneration(LlavaOnevision2PreTrainedModel, Ge
             image_grid_thw=image_grid_thw,
             video_grid_thw=video_grid_thw,
             second_per_grid_ts=second_per_grid_ts,
+            patch_positions=patch_positions,
             use_cache=use_cache,
             **kwargs,
         )
@@ -1647,8 +1653,4 @@ __all__ = [
     "LlavaViTEncoder",
     "LlavaOnevision2VisionPatchMerger",
     "Siglip2MultiheadAttentionPoolingHead",
-    # Utility functions
-    "interpolate_frame_indices",
-    "compute_patch_positions_from_grid_thw",
-    "compute_patch_positions_with_interpolated_temporal",
 ]
