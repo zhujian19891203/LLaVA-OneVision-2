@@ -430,6 +430,27 @@ Thanks so much to all of our amazing contributors!
 		</tr>
 		<tr>
             <td align="center">
+                <a href="https://github.com/yshenaw">
+                    <img src="https://avatars.githubusercontent.com/u/45809710?v=4" width="80;" alt="yshenaw"/>
+                    <br />
+                    <sub><b>yshenaw</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/Yangsenqiao">
+                    <img src="https://avatars.githubusercontent.com/u/73487993?v=4" width="80;" alt="Yangsenqiao"/>
+                    <br />
+                    <sub><b>Yangsenqiao</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/kcz358">
+                    <img src="https://avatars.githubusercontent.com/u/92624596?v=4" width="80;" alt="kcz358"/>
+                    <br />
+                    <sub><b>kcz358</b></sub>
+                </a>
+            </td>
+            <td align="center">
                 <a href="https://github.com/YunyaoYan">
                     <img src="https://avatars.githubusercontent.com/u/109638667?v=4" width="80;" alt="YunyaoYan"/>
                     <br />
@@ -444,12 +465,28 @@ Thanks so much to all of our amazing contributors!
                 </a>
             </td>
             <td align="center">
+                <a href="https://github.com/wkzhang636">
+                    <img src="https://avatars.githubusercontent.com/u/194186498?v=4" width="80;" alt="wkzhang636"/>
+                    <br />
+                    <sub><b>wkzhang636</b></sub>
+                </a>
+            </td>
+            <td align="center">
                 <a href="https://github.com/chengzheng345">
                     <img src="https://avatars.githubusercontent.com/u/209475443?v=4" width="80;" alt="chengzheng345"/>
                     <br />
                     <sub><b>chengzheng345</b></sub>
                 </a>
             </td>
+            <td align="center">
+                <a href="https://github.com/Jinghao-Guo">
+                    <img src="https://avatars.githubusercontent.com/u/212396229?v=4" width="80;" alt="Jinghao-Guo"/>
+                    <br />
+                    <sub><b>Jinghao-Guo</b></sub>
+                </a>
+            </td>
+		</tr>
+		<tr>
             <td align="center">
                 <a href="https://github.com/wideyard">
                     <img src="https://avatars.githubusercontent.com/u/101321826?v=4" width="80;" alt="wideyard"/>
@@ -472,21 +509,12 @@ Thanks so much to all of our amazing contributors!
                 </a>
             </td>
             <td align="center">
-                <a href="https://github.com/wkzhang636">
-                    <img src="https://avatars.githubusercontent.com/u/194186498?v=4" width="80;" alt="wkzhang636"/>
-                    <br />
-                    <sub><b>wkzhang636</b></sub>
-                </a>
-            </td>
-            <td align="center">
                 <a href="https://github.com/yunglechao">
                     <img src="https://avatars.githubusercontent.com/u/7631185?v=4" width="80;" alt="yunglechao"/>
                     <br />
                     <sub><b>yunglechao</b></sub>
                 </a>
             </td>
-		</tr>
-		<tr>
             <td align="center">
                 <a href="https://github.com/RobitYadda">
                     <img src="https://avatars.githubusercontent.com/u/6811311?v=4" width="80;" alt="RobitYadda"/>
