@@ -1,9 +1,13 @@
-from typing import Callable, Iterator, List, TypeVar, Optional
 import random
+from collections.abc import Callable, Iterator
+from typing import TypeVar
+
 from megatron.energon.flavors.base_dataset import SavableDataset
 from megatron.energon.worker import WorkerConfig
 
+
 T_sample = TypeVar("T_sample")
+
 
 class LengthPoolSortDataset(SavableDataset[T_sample]):
     """
@@ -11,6 +15,7 @@ class LengthPoolSortDataset(SavableDataset[T_sample]):
       - 累积 pool_size 个样本，按 key_fn(sample) 排序后依次输出
       - 剩余不足 pool_size 的尾部再排序输出
     """
+
     def __init__(
         self,
         dataset: SavableDataset[T_sample],
@@ -20,7 +25,7 @@ class LengthPoolSortDataset(SavableDataset[T_sample]):
         ascending: bool,
         worker_config: WorkerConfig,
         tail_shuffle: bool = True,
-        shuffle_seed: Optional[int] = None,  # 若 None 使用 worker_config.global_seed
+        shuffle_seed: int | None = None,  # 若 None 使用 worker_config.global_seed
     ):
         super().__init__(worker_config=worker_config)
         assert pool_size > 0
@@ -29,11 +34,7 @@ class LengthPoolSortDataset(SavableDataset[T_sample]):
         self.key_fn = key_fn
         self.ascending = ascending
         self.tail_shuffle = tail_shuffle
-        base_seed = (
-            shuffle_seed
-            if shuffle_seed is not None
-            else getattr(worker_config, "global_seed", 1234)
-        )
+        base_seed = shuffle_seed if shuffle_seed is not None else getattr(worker_config, "global_seed", 1234)
         # 独立 RNG, 不污染全局
         self._rng = random.Random(base_seed)
 
@@ -41,7 +42,7 @@ class LengthPoolSortDataset(SavableDataset[T_sample]):
         return len(self.dataset)
 
     def __iter__(self) -> Iterator[T_sample]:
-        pool: List[T_sample] = []
+        pool: list[T_sample] = []
         for batch_idx, sample in enumerate(self.dataset):
             pool.append(sample)
             if len(pool) >= self.pool_size:

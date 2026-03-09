@@ -209,6 +209,7 @@ class Qwen2VLPlugin(MMPlugin):
 
         num_image_tokens, num_video_tokens = 0, 0
         messages = deepcopy(messages)
+
         for message in messages:
             content = message["content"]
             while Placeholder.IMAGE in content:

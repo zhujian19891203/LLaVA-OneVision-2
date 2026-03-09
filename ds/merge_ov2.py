@@ -45,11 +45,10 @@ def create_test_image():
 
 
 def load_empty_model(llm_path, enable_patch_position_encoding=True):
-    print("Loading tokenizer and processor from Qwen2.5-VL and empty model...")
     tokenizer = Qwen2Tokenizer.from_pretrained(
-        "Qwen/Qwen2.5-VL-7B-Instruct", trust_remote_code=True, device_map={"": f"cuda:{CUDA_DEVICE}"}, use_fast=True
+        "/ov2/pretrain_models/llava_onevision2/llava_onevision2_4b_hf_automodel", trust_remote_code=True, device_map={"": f"cuda:{CUDA_DEVICE}"}, use_fast=True
     )
-    processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct", use_fast=True)
+    processor = AutoProcessor.from_pretrained("/ov2/pretrain_models/llava_onevision2/llava_onevision2_4b_hf_automodel", use_fast=True)
     processor.image_processor.temporal_patch_size = 1
     processor.image_processor.max_pixels = 2000 * 2000
     llava_onevision2_config = LlavaOnevision2Config()

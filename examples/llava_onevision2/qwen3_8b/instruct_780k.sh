@@ -1,50 +1,17 @@
-# =============================================================================
-# LLaVA-OneVision2 8B (Qwen3-8B + 300M ViT) – Stage-1 Alignment Training
-# =============================================================================
-#
-# Recommended parallelism strategy
-# ---------------------------------
-# The model has two heterogeneous sub-models:
-#   • ViT  (300 M params) : 24 layers, hidden_size=1024
-#   • LLM  (8 B  params) : 36 transformer layers, hidden_size=4096
-#
-# Pipeline placement rule: the ViT encoder + MLP adapter always live on PP
-# stage-0 (first pipeline rank).  Because stage-0 already carries the ViT
-# workload, assigning it 0 LLM transformer layers keeps compute balanced.
-#
-# 36 LLM layers → stages 1-3 each receive  36/3 = 12  layers:
-#   --pipeline-model-parallel-size 4  --custom-pipeline-layers 0,12,12,12
-#
-# Recommended configurations by GPU count
-# ----------------------------------------
-#  8  GPUs : TP=2  PP=4  --custom-pipeline-layers 0,12,12,12  (default below)
-#  16 GPUs : TP=4  PP=4  --custom-pipeline-layers 0,12,12,12
-#  32 GPUs : TP=4  PP=4  --custom-pipeline-layers 0,12,12,12  (2 nodes × 16 GPUs)
-#
-# For PP=1 (single-stage, no pipeline split) use the plain TP-only preset:
-#   TP=8 PP=1   (no --custom-pipeline-layers needed)
-# =============================================================================
-
 TP="${1:-1}"
 PP="${2:-1}"
-SEQ_LEN="${3:-32768}"
+SEQ_LEN="${3:-32000}"
 MBS="${4:-1}"
-GBS="${5:-8}"
-NSTEP="${6:-2500}"
-# When PP=4 the ViT sits on stage-0 with 0 LLM layers; stages 1-3 share 36
-# layers evenly.  Override via environment variable for other PP values, e.g.:
-#   CUSTOM_PIPELINE_LAYERS=0,18,18        (PP=3)
-#   CUSTOM_PIPELINE_LAYERS=0,6,6,6,6,6,6 (PP=7)
-CUSTOM_PIPELINE_LAYERS="${CUSTOM_PIPELINE_LAYERS:-0,12,12,12}"
+GBS="${5:-132}"
+TOTAL_SAMPLES=740000
+NSTEP="${6:-$(((TOTAL_SAMPLES + GBS - 1) / GBS))}"
 
 AIAK_TRAINING_PATH="${AIAK_TRAINING_PATH:-/workspace/LLaVA-OneVision-2}"
 AIAK_MAGATRON_PATH="${AIAK_MAGATRON_PATH:-${AIAK_TRAINING_PATH%/}/aiak_megatron}"
-
-OUTPUT_DIR="${OUTPUT_DIR:-output}"
-DATA_PATH=${DATA_PATH:-""}
+OUTPUT_DIR="${OUTPUT_DIR:-/ov2/xiangan/ckpts_4b_date_0214}"
+DATA_PATH=${DATA_PATH:-"/ov2/dataset_sft/webdataset_llava_next_740k"}
 TOKENIZER_PATH=${TOKENIZER_PATH:-"/ov2/pretrain_models/llava_onevision2/llava_onevision2_8b/auto-model"}
-CHECKPOINT_PATH=${CHECKPOINT_PATH:-"/ov2/pretrain_models/llava_onevision2/llava_onevision2_8b/llava_onevision2_8b_stage0_mcore_tp1_pp1"}
-
+CHECKPOINT_PATH=${CHECKPOINT_PATH:-""}
 
 #! /bin/bash
 # The script needs to be run on at least 1 nodes.
@@ -52,7 +19,21 @@ CHECKPOINT_PATH=${CHECKPOINT_PATH:-"/ov2/pretrain_models/llava_onevision2/llava_
 # --- Multi-node configuration ---
 # List of IP addresses for the nodes in the training cluster
 declare -a list_ip=(
-    "localhost"
+    # localhost
+
+
+    "172.16.5.33"
+    "172.16.5.34"
+    "172.16.5.35"
+    "172.16.5.41"
+    "172.16.5.42"
+    "172.16.5.43"
+    "172.16.5.44"
+    "172.16.5.45"
+    "172.16.5.46"
+    "172.16.5.47"
+    "172.16.5.49"
+
 )
 
 # Get the primary IP of the current node
@@ -112,6 +93,7 @@ TENSORBOARD_PATH="${SAVE_CKPT_PATH}/tensorboard"
 mkdir -p "$SAVE_CKPT_PATH"
 mkdir -p "$TENSORBOARD_PATH"
 mkdir -p "$SAVE_CKPT_PATH/dataloader"
+cp "$0" "${SAVE_CKPT_PATH}/"
 GPUS_PER_NODE=8
 
 # Change for multinode config
@@ -142,19 +124,21 @@ DATA_ARGS=(
     --data-path "$DATA_PATH"
     --dataloader-type external
     --split 100,0,0
-    --num-workers 16
+    --num-workers 1
     --chat-template qwen2-vl
+    --enable-discard-sample
+    --length-sort-pool-size 3000
 )
 
 TRAINING_ARGS=(
     --training-phase sft
-    --trainable-modules adapter
+    --trainable-modules language_model adapter vision_model
     --seq-length "${SEQ_LEN}"
-    --max-position-embeddings 32768
+    --max-position-embeddings "${SEQ_LEN}"
     --init-method-std 0.02
     --micro-batch-size "${MBS}"
     --global-batch-size "${GBS}"
-    --lr 1.0e-4
+    --lr 1.0e-5
     --min-lr 1.0e-6
     --clip-grad 1.0
     --weight-decay 0
@@ -169,19 +153,26 @@ TRAINING_ARGS=(
     --lr-warmup-fraction 0.002
     --initial-loss-scale 65536
     --bf16
-    --load "$CHECKPOINT_PATH"
     --save "$SAVE_CKPT_PATH"
-    --save-interval 2000
+    --save-interval 1000
     --ckpt-format torch
     --dataloader-save "${SAVE_CKPT_PATH}/dataloader"
 
     --ckpt-fully-parallel-load
     --recompute-granularity full
     --recompute-method uniform
-    --recompute-num-layers 4
+    # --recompute-num-layers 4
+
+    --custom-pipeline-recompute-layers 12,12
+    --custom-pipeline-layers 12,24
 )
 
-# Build MODEL_PARALLEL_ARGS; only pass --custom-pipeline-layers when PP > 1
+if [ -d "$CHECKPOINT_PATH" ]; then
+    TRAINING_ARGS+=(
+        --load "$CHECKPOINT_PATH"
+    )
+fi
+
 MODEL_PARALLEL_ARGS=(
     --attention-backend flash
     --pipeline-model-parallel-size "${PP}"
@@ -189,10 +180,6 @@ MODEL_PARALLEL_ARGS=(
     --use-distributed-optimizer
     --distributed-backend nccl
 )
-
-if [[ $PP -gt 1 && -n "$CUSTOM_PIPELINE_LAYERS" ]]; then
-    MODEL_PARALLEL_ARGS+=(--custom-pipeline-layers "${CUSTOM_PIPELINE_LAYERS}")
-fi
 
 LOGGING_ARGS=(
     --log-interval 1
@@ -210,7 +197,7 @@ fi
 TM=$(date "+%Y-%m-%d_%H:%M:%S")
 logfile="${SAVE_CKPT_PATH}/run_${TM}_tp${TP}_pp${PP}_seqlen${SEQ_LEN}_mbs${MBS}_gbs${GBS}_${NSTEP}steps.log"
 
-export OFFLINE_PACKING_BMR=1
+# export OFFLINE_PACKING_BMR=1
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.72
 

@@ -25,25 +25,28 @@
 #   TP=8 PP=1   (no --custom-pipeline-layers needed)
 # =============================================================================
 
-TP="${1:-2}"
-PP="${2:-4}"
+TP="${1:-1}"
+PP="${2:-1}"
 SEQ_LEN="${3:-32768}"
 MBS="${4:-1}"
-GBS="${5:-16}"
-NSTEP="${6:-20000}"
+GBS="${5:-128}"
+
+TOTAL_SAMPLES=9000000
+NSTEP="${6:-$(((TOTAL_SAMPLES + GBS - 1) / GBS))}"
 # When PP=4 the ViT sits on stage-0 with 0 LLM layers; stages 1-3 share 36
 # layers evenly.  Override via environment variable for other PP values, e.g.:
-#   CUSTOM_PIPELINE_LAYERS=0,18,18        (PP=3)
-#   CUSTOM_PIPELINE_LAYERS=0,6,6,6,6,6,6 (PP=7)
-CUSTOM_PIPELINE_LAYERS="${CUSTOM_PIPELINE_LAYERS:-0,12,12,12}"
+# CUSTOM_PIPELINE_LAYERS=0,18,18        (PP=3)
+# CUSTOM_PIPELINE_LAYERS=0,6,6,6,6,6,6 (PP=7)
+# CUSTOM_PIPELINE_LAYERS="${CUSTOM_PIPELINE_LAYERS:-0,12,12,12}"
 
 AIAK_TRAINING_PATH="${AIAK_TRAINING_PATH:-/workspace/LLaVA-OneVision-2}"
 AIAK_MAGATRON_PATH="${AIAK_MAGATRON_PATH:-${AIAK_TRAINING_PATH%/}/aiak_megatron}"
-OUTPUT_DIR="${OUTPUT_DIR:-output}"
+OUTPUT_DIR="${OUTPUT_DIR:-/mnt/data/models/checkpoints_llava_onevision2_8b}"
 
-DATA_PATH=${DATA_PATH:-"dataset_mid/LLaVA-OneVision-1.5-Mid-Training-Webdataset-Quick-Start-Packed-384332"}
-TOKENIZER_PATH=${TOKENIZER_PATH:-"/ov2/pretrain_models/preprocessor/preprocessor_llava_onevision1_5"}
-CHECKPOINT_PATH=${CHECKPOINT_PATH:-"/workspace/LLaVA-OneVision-2/stage_1_alignment_llava_ov_8b_release"}
+DATA_PATH=${DATA_PATH:-"/mnt/data/models/llava_onevision2_8b/ax_85m_image_5m_video.yaml"}
+TOKENIZER_PATH=${TOKENIZER_PATH:-"/mnt/data/models/llava_onevision2_8b/auto-model"}
+CHECKPOINT_PATH=${CHECKPOINT_PATH:-"/mnt/data/models/llava_onevision2_8b/llava_onevision2_8b_stage1_mcore_tp1_pp1"}
+
 
 #! /bin/bash
 # The script needs to be run on at least 1 nodes.
@@ -107,6 +110,8 @@ fi
 
 SAVE_CKPT_PATH=$OUTPUT_DIR/$(basename "$0" .sh)
 TENSORBOARD_PATH="${SAVE_CKPT_PATH}/tensorboard"
+
+# CHECKPOINT_PATH=$SAVE_CKPT_PATH
 
 mkdir -p "$SAVE_CKPT_PATH"
 mkdir -p "$TENSORBOARD_PATH"
@@ -174,10 +179,10 @@ TRAINING_ARGS=(
     --ckpt-format torch
     --dataloader-save "${SAVE_CKPT_PATH}/dataloader"
 
-    # --ckpt-fully-parallel-load
-    # --recompute-granularity full
-    # --recompute-method uniform
-    # --recompute-num-layers 4
+    --ckpt-fully-parallel-load
+    --recompute-granularity full
+    --recompute-method uniform
+    --recompute-num-layers 4
 )
 
 # Build MODEL_PARALLEL_ARGS; only pass --custom-pipeline-layers when PP > 1
@@ -189,9 +194,9 @@ MODEL_PARALLEL_ARGS=(
     --distributed-backend nccl
 )
 
-if [[ $PP -gt 1 && -n "$CUSTOM_PIPELINE_LAYERS" ]]; then
-    MODEL_PARALLEL_ARGS+=(--custom-pipeline-layers "${CUSTOM_PIPELINE_LAYERS}")
-fi
+# if [[ $PP -gt 1 && -n "$CUSTOM_PIPELINE_LAYERS" ]]; then
+#     MODEL_PARALLEL_ARGS+=(--custom-pipeline-layers "${CUSTOM_PIPELINE_LAYERS}")
+# fi
 
 LOGGING_ARGS=(
     --log-interval 1
@@ -209,8 +214,7 @@ fi
 TM=$(date "+%Y-%m-%d_%H:%M:%S")
 logfile="${SAVE_CKPT_PATH}/run_${TM}_tp${TP}_pp${PP}_seqlen${SEQ_LEN}_mbs${MBS}_gbs${GBS}_${NSTEP}steps.log"
 
-export OFFLINE_PACKED_DATA='1'
-export OFFLINE_PACKING_VQA='1'
+export OFFLINE_PACKING_BMR=1
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.72
 

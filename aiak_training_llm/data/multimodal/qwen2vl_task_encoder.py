@@ -330,8 +330,11 @@ class Qwen2VLTaskEncoder(TaskEncoder):
                 if i is not None:
                     patch_positions.append(torch.tensor(i, dtype=torch.int64))
 
-        if kwargs is not None and "fps" in kwargs and len(patch_positions) > 0:
-            fps = kwargs['fps'][0] if isinstance(kwargs['fps'], list) else kwargs['fps']
+        fps = None
+        if kwargs is not None and "fps" in kwargs:
+            fps = kwargs["fps"][0] if isinstance(kwargs["fps"], list) else kwargs["fps"]
+
+        if fps is not None and fps > 0 and len(patch_positions) > 0:
             pt_patch_position = torch.concat(patch_positions)
             timestamp = self.compute_frame_timestamps(patch_positions, pt_patch_position, fps)
             timestamp = [round(t, 1) for t in timestamp]
@@ -508,42 +511,106 @@ class Qwen2VLTaskEncoder(TaskEncoder):
     def encode_multi_mix_qa(self, sample: MultiMixQASample) -> ImageTaskSample:
         """Encode sample in Qwen2VL style."""
         if sample.fps is not None:
-            # pass
-            print(f"Sample key: {sample.__key__}, FPS: {sample.fps}")
+            pass
+            # print(f"Sample key: {sample.__key__}, FPS: {sample.fps}")
 
         if self.args.training_phase == constants.TrainingPhase.SFT:
             num_tiles = []
             kwargs = {}
-            if hasattr(sample, "fps"):
+            if hasattr(sample, "fps") and sample.fps is not None:
                 kwargs['fps'] = sample.fps
 
-            (
-                input_ids,
-                target,
-                attn_mask,
-                imgs,
-                image_grid_thw,
-                pixel_values_videos,
-                video_grid_thw,
-                patch_positions,
-            ) = self.process_sft_qa(sample.messages, sample.system, sample.video, sample.image, sample.patch_positions, **kwargs)
-            if sample.video is not None:
+            def _remove_last_qa_round(messages: list[dict]) -> list[dict]:
+                assistant_idx = -1
+                for idx in range(len(messages) - 1, -1, -1):
+                    if messages[idx].get("role") == constants.DataRoles.ASSISTANT:
+                        assistant_idx = idx
+                        break
+
+                if assistant_idx == -1:
+                    return []
+
+                user_idx = -1
+                for idx in range(assistant_idx - 1, -1, -1):
+                    if messages[idx].get("role") == constants.DataRoles.USER:
+                        user_idx = idx
+                        break
+
+                if user_idx == -1:
+                    return []
+
+                return messages[:user_idx] + messages[assistant_idx + 1 :]
+
+            current_messages = [dict(message) for message in sample.messages]
+            current_image = sample.image
+            current_video = sample.video
+            current_patch_positions = sample.patch_positions
+
+            while True:
+                (
+                    input_ids,
+                    target,
+                    attn_mask,
+                    imgs,
+                    image_grid_thw,
+                    pixel_values_videos,
+                    video_grid_thw,
+                    patch_positions,
+                ) = self.process_sft_qa(
+                    current_messages,
+                    sample.system,
+                    current_video,
+                    current_image,
+                    current_patch_positions,
+                    **kwargs,
+                )
+
+                if len(input_ids) <= self.args.seq_length:
+                    break
+
+                current_messages = _remove_last_qa_round(current_messages)
+                if len(current_messages) == 0:
+                    raise SampleException(
+                        "Sample has no QA rounds left after truncation to fit seq_length:\n"
+                        f"- sample: {sample.__key__}\n"
+                        f"- seq_length: {self.args.seq_length}"
+                    )
+
+                image_placeholder_count = sum(
+                    message.get("content", "").count(constants.Placeholder.IMAGE) for message in current_messages
+                )
+                video_placeholder_count = sum(
+                    message.get("content", "").count(constants.Placeholder.VIDEO) for message in current_messages
+                )
+
+                if current_image is not None:
+                    current_image = current_image[:image_placeholder_count]
+
+                if current_patch_positions is not None:
+                    current_patch_positions = current_patch_positions[:image_placeholder_count]
+
+                if isinstance(current_video, list):
+                    current_video = current_video[:video_placeholder_count]
+                elif current_video is not None and video_placeholder_count == 0:
+                    current_video = None
+
+            if video_grid_thw is not None:
                 num_tiles = [len(video_grid_thw)]
-            elif sample.image is not None:
+            elif image_grid_thw is not None:
                 num_tiles = [len(image_grid_thw)]
         else:
             raise NotImplementedError(f"Unknown training phase {self.args.training_phase}")
 
         if len(input_ids) == 0:
-            raise ValueError(f"input_ids is empty in {sample.__key__}")
+            raise SampleException(f"input_ids is empty in {sample.__key__}")
 
         if self.args.enable_discard_sample:
             assert len(input_ids) <= self.args.seq_length, f"{sample.__key__} input length {len(input_ids)}"
-        elif sample.video is not None:
+        elif video_grid_thw is not None:
             assert video_grid_thw.prod(dim=-1).sum() / 4 <= self.args.seq_length, (
                 f"{sample.__key__} grid_thw: {video_grid_thw}"
             )
-        elif sample.image is not None:
+        elif image_grid_thw is not None:
             image_token_len = int(image_grid_thw.prod(dim=-1).sum().item() / 4)
             assert image_token_len <= self.args.seq_length, (
                 "Image token length exceeds seq_length:\n"
@@ -586,7 +653,7 @@ class Qwen2VLTaskEncoder(TaskEncoder):
             video_grid_thw = None
 
         return image_grid_thw, video_grid_thw
-    
+
     @override
     @stateless
     def pack_selected_samples(self, samples: list[Qwen2VLImageTaskSample]) -> list[Qwen2VLImageTaskSamplePacked]:
