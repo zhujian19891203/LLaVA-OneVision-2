@@ -8,7 +8,6 @@ from typing import Optional, TypeVar, Union
 import numpy as np
 import torch
 from megatron.energon import CaptioningSample, VQASample
-from megatron.energon.errors import SampleException
 from megatron.energon.flavors.base_dataset import (
     BaseCoreDatasetFactory,
     SavableDataset,
@@ -357,8 +356,7 @@ class Qwen2VLTaskEncoder(TaskEncoder):
 
         if has_image_inputs:
             image_grid_thw = mm_inputs.get("image_grid_thw")
-            if image_grid_thw is None:
-                raise SampleException(
+            assert image_grid_thw is not None, (
                     "Missing `image_grid_thw` in multimodal inputs:\n"
                     f"- num_raw_image: {len(raw_image)}\n"
                     f"- mm_input_keys: {list(mm_inputs.keys())}\n"
@@ -370,8 +368,7 @@ class Qwen2VLTaskEncoder(TaskEncoder):
                 t_val, h_val, w_val = image_grid_thw[img_idx].tolist()
                 num_patches += h_val * w_val
             pixel_values = mm_inputs.get("pixel_values")
-            if pixel_values is None:
-                raise SampleException(
+            assert pixel_values is not None, (
                     "Missing `pixel_values` in multimodal inputs:\n"
                     f"- num_raw_image: {len(raw_image)}\n"
                     f"- mm_input_keys: {list(mm_inputs.keys())}"
@@ -393,8 +390,7 @@ class Qwen2VLTaskEncoder(TaskEncoder):
             else:
                 image_grid_thw = torch.tensor([[len(image_grid_thw),image_grid_thw[0][1],image_grid_thw[0][2]]])
             patch_positions_sum = sum(len(p) for p in patch_positions)
-            if num_patches != patch_positions_sum:
-                raise SampleException(
+            assert num_patches == patch_positions_sum, (
                     "num_patches mismatch:\n"
                     f"- num_patches: {num_patches}\n"
                     f"- patch_positions_sum: {patch_positions_sum}\n"
@@ -569,8 +565,7 @@ class Qwen2VLTaskEncoder(TaskEncoder):
                     break
 
                 current_messages = _remove_last_qa_round(current_messages)
-                if len(current_messages) == 0:
-                    raise SampleException(
+                assert len(current_messages) > 0, (
                         "Sample has no QA rounds left after truncation to fit seq_length:\n"
                         f"- sample: {sample.__key__}\n"
                         f"- seq_length: {self.args.seq_length}"
@@ -601,8 +596,7 @@ class Qwen2VLTaskEncoder(TaskEncoder):
         else:
             raise NotImplementedError(f"Unknown training phase {self.args.training_phase}")
 
-        if len(input_ids) == 0:
-            raise SampleException(f"input_ids is empty in {sample.__key__}")
+        assert len(input_ids) > 0, f"input_ids is empty in {sample.__key__}"
 
         if self.args.enable_discard_sample:
             assert len(input_ids) <= self.args.seq_length, f"{sample.__key__} input length {len(input_ids)}"
@@ -613,12 +607,12 @@ class Qwen2VLTaskEncoder(TaskEncoder):
         elif image_grid_thw is not None:
             image_token_len = int(image_grid_thw.prod(dim=-1).sum().item() / 4)
             assert image_token_len <= self.args.seq_length, (
-                "Image token length exceeds seq_length:\n"
-                f"- sample: {sample.__key__}\n"
-                f"- image_grid_thw: {image_grid_thw}\n"
-                f"- image_token_len: {image_token_len}\n"
-                f"- seq_length: {self.args.seq_length}"
-            )
+                    "Image token length exceeds seq_length:\n"
+                    f"- sample: {sample.__key__}\n"
+                    f"- image_grid_thw: {image_grid_thw}\n"
+                    f"- image_token_len: {image_token_len}\n"
+                    f"- seq_length: {self.args.seq_length}"
+                )
 
         return Qwen2VLImageTaskSample(
             __key__=sample.__key__,

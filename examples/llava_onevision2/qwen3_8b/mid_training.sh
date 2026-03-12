@@ -215,8 +215,8 @@ TM=$(date "+%Y-%m-%d_%H:%M:%S")
 logfile="${SAVE_CKPT_PATH}/run_${TM}_tp${TP}_pp${PP}_seqlen${SEQ_LEN}_mbs${MBS}_gbs${GBS}_${NSTEP}steps.log"
 
 export OFFLINE_PACKING_BMR=1
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
-export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.72
+# export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+# export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.72
 
 PYTHONPATH="$AIAK_MAGATRON_PATH:$AIAK_TRAINING_PATH:$PYTHONPATH" \
     torchrun "${DISTRIBUTED_ARGS[@]}" \

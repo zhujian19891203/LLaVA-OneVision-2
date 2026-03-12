@@ -206,15 +206,47 @@ class Qwen2VLPlugin(MMPlugin):
         mm_inputs = self._get_mm_inputs(images, videos, processor)
         image_grid_thw = mm_inputs.get("image_grid_thw", [])
         video_grid_thw = mm_inputs.get("video_grid_thw", [])
+        actual_num_images = len(image_grid_thw)
 
         num_image_tokens, num_video_tokens = 0, 0
         messages = deepcopy(messages)
 
+        image_placeholder_count = sum(message["content"].count(Placeholder.IMAGE) for message in messages)
+        video_placeholder_count = sum(message["content"].count(Placeholder.VIDEO) for message in messages)
+
+        if actual_num_images > 0 and image_placeholder_count != actual_num_images:
+            for message in messages:
+                message["content"] = message["content"].replace(Placeholder.IMAGE, "")
+
+            first_user_msg = None
+            for message in messages:
+                if message.get("role") == "user":
+                    first_user_msg = message
+                    break
+
+            if first_user_msg is None:
+                raise ValueError("Cannot rebuild image placeholders: no user message found.")
+
+            image_placeholders = "\n".join([Placeholder.IMAGE] * actual_num_images)
+            user_content = first_user_msg["content"].lstrip("\n")
+            first_user_msg["content"] = "{}\n{}".format(image_placeholders, user_content)
+
+        if len(videos) > 0 and video_placeholder_count == 0:
+            raise ValueError("Found video inputs but no {} token in messages.".format(Placeholder.VIDEO))
+        if video_placeholder_count > 0 and video_placeholder_count != len(videos):
+            raise ValueError(
+                "Found {} video(s) but {} {} token(s) in messages.".format(
+                    len(videos), video_placeholder_count, Placeholder.VIDEO
+                )
+            )
+
         for message in messages:
             content = message["content"]
             while Placeholder.IMAGE in content:
-                if num_image_tokens > len(image_grid_thw):
-                    raise ValueError("`len(images)` is less than the number of {} tokens.".format(Placeholder.IMAGE))
+                if num_image_tokens >= actual_num_images:
+                    raise ValueError(
+                        "The number of {} tokens is greater than available images.".format(Placeholder.IMAGE)
+                    )
 
                 content = content.replace(
                     Placeholder.IMAGE,
@@ -226,7 +258,7 @@ class Qwen2VLPlugin(MMPlugin):
                 num_image_tokens += 1
 
             while Placeholder.VIDEO in content:
-                if num_video_tokens > len(video_grid_thw):
+                if num_video_tokens >= len(video_grid_thw):
                     raise ValueError("`len(videos)` is less than the number of {} tokens.".format(Placeholder.VIDEO))
 
                 content = content.replace(
@@ -240,7 +272,7 @@ class Qwen2VLPlugin(MMPlugin):
 
             message["content"] = content
 
-        if len(images) != num_image_tokens:
+        if actual_num_images != num_image_tokens:
             raise ValueError("The number of images does not match the number of {} tokens".format(Placeholder.IMAGE))
 
         if len(videos) != num_video_tokens:
