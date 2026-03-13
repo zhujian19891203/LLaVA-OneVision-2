@@ -204,53 +204,6 @@ def convert_rope_to_block_layout(
     return freqs
 
 
-def convert_positions_to_block_layout(
-    positions: torch.Tensor, t: int, h: int, w: int, spatial_merge_size: int = 2
-) -> torch.Tensor:
-    """
-    Convert patch positions from row-major order to 2x2 block layout.
-
-    This function reorders patch positions to match the 2x2 block arrangement
-    used by the image processor. Uses index-based reordering instead of reshape.
-
-    Args:
-        positions: Patch positions in row-major order, shape [t*h*w, 3]
-        t: temporal dimension
-        h: height (unmerged patch count)
-        w: width (unmerged patch count)
-        spatial_merge_size: size of spatial merge blocks (default: 2)
-
-    Returns:
-        torch.Tensor: Patch positions in 2x2 block order, same shape [t*h*w, 3]
-    """
-    sms = spatial_merge_size
-    if sms == 1:
-        return positions
-
-    device = positions.device
-    total_patches = t * h * w
-
-    # Generate row-major indices: [0, 1, 2, ..., t*h*w-1]
-    # Reshape to [t, h, w]
-    indices = torch.arange(total_patches, device=device).view(t, h, w)
-
-    # Calculate merged dimensions
-    h_merged = h // sms
-    w_merged = w // sms
-
-    # Reshape to [t, h_merged, sms, w_merged, sms]
-    indices = indices.view(t, h_merged, sms, w_merged, sms)
-
-    # Permute to [t, h_merged, w_merged, sms_h, sms_w] - 2x2 block order
-    indices = indices.permute(0, 1, 3, 2, 4).contiguous()
-
-    # Flatten to get the reordering indices
-    indices = indices.view(total_patches)
-
-    # Apply the reordering to positions
-    return positions[indices]
-
-
 class OneVisionEncoderModel(VisionModule):
     """
     OneVision encoder model with packed sequence support, pre-layernorm and 3D RoPE.
@@ -368,9 +321,8 @@ class OneVisionEncoderModel(VisionModule):
         tokens_per_sample = []
 
         if patch_positions is not None:
-            # Use provided patch positions (from pre-computed data)
+            # Use provided patch positions (already in block layout from task_encoder)
             # patch_positions is [total_patches, 3] with (t, h, w) per patch
-            # Need to reorder from row-major to 2x2 block layout for each sample
 
             offset = 0
             for i in range(batch_size):
@@ -379,13 +331,10 @@ class OneVisionEncoderModel(VisionModule):
                 num_patches = t * h * w
                 tokens_per_sample.append(num_patches)
 
-                # Extract this sample's positions
+                # Extract this sample's positions (already in block layout)
                 sample_positions = patch_positions[offset : offset + num_patches]
 
-                # Convert positions from row-major to 2x2 block layout
-                sample_positions = convert_positions_to_block_layout(sample_positions, t, h, w, sms)
-
-                # Compute RoPE from reordered positions
+                # Compute RoPE directly from block-layout positions
                 sample_freqs = self.video_rope.forward_from_positions(sample_positions)
                 all_rotary_pos_emb.append(sample_freqs)
 
