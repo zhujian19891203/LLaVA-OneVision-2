@@ -87,18 +87,20 @@ def rotate_half(x):
 def apply_rotary_pos_emb(q, k, freqs):
     # q, k: (B, H, L, D)
     # freqs: (B, L, D)
-
+    orig_q_dtype = q.dtype
+    orig_k_dtype = k.dtype
+    q, k = q.float(), k.float()
     # We need to broadcast freqs to match heads
     # (B, L, D) -> (B, 1, L, D)
-
-    # !!! CRITICAL FIX: Cast cos/sin to q.dtype (bf16/fp16) immediately
-    # freqs are typically float32, so cos() returns float32.
-    # Without this cast, (q * cos) upcasts q to float32, causing FlashAttention to fail.
-    cos = freqs.cos().unsqueeze(1).to(q.dtype)
-    sin = freqs.sin().unsqueeze(1).to(q.dtype)
+    # Use float32 for RoPE computation to maintain precision across layers,
+    # then cast back to original dtype for FlashAttention compatibility.
+    cos = freqs.cos().unsqueeze(1).float()
+    sin = freqs.sin().unsqueeze(1).float()
 
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
+    q_embed = q_embed.to(orig_q_dtype)
+    k_embed = k_embed.to(orig_k_dtype)
     return q_embed, k_embed
 
 
@@ -372,7 +374,7 @@ class OneVisionEncoderFlashAttention2(nn.Module):
             # Transpose for RoPE application: (B, L, H, D) -> (B, H, L, D)
             query_states = query_states.transpose(1, 2)
             key_states = key_states.transpose(1, 2)
-            # NOTE: apply_rotary_pos_emb now ensures NO float32 cast happens
+            # NOTE: apply_rotary_pos_emb uses float32 internally, casts back to input dtype
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, rotary_pos_emb)
             # Transpose back: (B, H, L, D) -> (B, L, H, D)
             query_states = query_states.transpose(1, 2)
