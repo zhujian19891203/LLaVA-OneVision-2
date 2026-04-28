@@ -183,7 +183,7 @@ echo "============================================================"
 
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
-PYTHONPATH="ds/llavaonevision2:$AIAK_MAGATRON_PATH:$AIAK_TRAINING_PATH:$PYTHONPATH" \
+PYTHONPATH="transformers_impl/llavaonevision2:$AIAK_MAGATRON_PATH:$AIAK_TRAINING_PATH:$PYTHONPATH" \
     torchrun "${DISTRIBUTED_ARGS[@]}" \
     "$AIAK_TRAINING_PATH/examples/llava_onevision2/check_model_consistency.py" \
     "${MODEL_ARGS[@]}" \

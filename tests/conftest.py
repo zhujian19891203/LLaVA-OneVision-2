@@ -50,8 +50,8 @@ def _ensure_hf_weights(config_dir: str) -> str:
             shutil.copy2(src_file, out_dir / src_file.name)
 
     # Instantiate from config → random weights, then save.
-    from ds.llavaonevision2.configuration_llava_onevision2 import LlavaOnevision2Config
-    from ds.llavaonevision2.modeling_llava_onevision2 import (
+    from transformers_impl.llavaonevision2.configuration_llava_onevision2 import LlavaOnevision2Config
+    from transformers_impl.llavaonevision2.modeling_llava_onevision2 import (
         LlavaOnevision2ForConditionalGeneration,
     )
 
@@ -72,10 +72,11 @@ def _build_megatron_cli_args(
     tp: int,
     pp: int,
 ) -> list[str]:
+    model_name = os.environ.get("CONSISTENCY_TEST_MODEL_NAME", "llava-onevision2-4b")
     return [
         "pytest-megatron-init",
         "--model-name",
-        "llava-onevision2-4b",
+        model_name,
         "--tokenizer-type",
         "HFTokenizer",
         "--hf-tokenizer-path",
@@ -135,12 +136,19 @@ def converted_mcore_path(hf_model_path: str) -> str:
     repo_root = _repo_root()
     tp = int(os.environ.get("CONSISTENCY_TEST_TP", "1"))
     pp = int(os.environ.get("CONSISTENCY_TEST_PP", "1"))
-    out_dir = repo_root / f"tmp_test_mcore_ckpt_tp{tp}_pp{pp}"
+    variant = os.environ.get("CONSISTENCY_TEST_MODEL_VARIANT", "4b")
+    out_dir = repo_root / f"tmp_test_mcore_ckpt_{variant}_tp{tp}_pp{pp}"
 
     env = os.environ.copy()
     env.setdefault("AIAK_TRAINING_PATH", str(repo_root))
 
-    script = repo_root / "examples" / "llava_onevision2" / "convert" / "convert_4b_hf_to_mcore.sh"
+    script = (
+        repo_root
+        / "examples"
+        / "llava_onevision2"
+        / "convert"
+        / f"convert_{variant}_hf_to_mcore.sh"
+    )
     result = subprocess.run(
         ["bash", str(script), hf_model_path, str(out_dir), str(tp), str(pp)],
         cwd=repo_root,
@@ -208,14 +216,14 @@ def megatron_init(hf_model_path: str, converted_mcore_path: str):
 
 @pytest.fixture(scope="session")
 def hf_config(hf_model_path: str):
-    from ds.llavaonevision2.configuration_llava_onevision2 import LlavaOnevision2Config
+    from transformers_impl.llavaonevision2.configuration_llava_onevision2 import LlavaOnevision2Config
 
     return LlavaOnevision2Config.from_pretrained(hf_model_path, trust_remote_code=True)
 
 
 @pytest.fixture(scope="session")
 def hf_vision_model(hf_model_path: str):
-    from ds.llavaonevision2.modeling_llava_onevision2 import LlavaOnevision2Model
+    from transformers_impl.llavaonevision2.modeling_llava_onevision2 import LlavaOnevision2Model
 
     full_model = LlavaOnevision2Model.from_pretrained(hf_model_path, low_cpu_mem_usage=True)
     vision_model = full_model.visual.to(dtype=torch.bfloat16, device="cuda").eval()
@@ -225,7 +233,7 @@ def hf_vision_model(hf_model_path: str):
 
 @pytest.fixture(scope="session")
 def hf_cond_gen_model(hf_model_path: str):
-    from ds.llavaonevision2.modeling_llava_onevision2 import LlavaOnevision2ForConditionalGeneration
+    from transformers_impl.llavaonevision2.modeling_llava_onevision2 import LlavaOnevision2ForConditionalGeneration
 
     model = LlavaOnevision2ForConditionalGeneration.from_pretrained(hf_model_path, low_cpu_mem_usage=True)
     return model.to(dtype=torch.bfloat16, device="cuda").eval()
