@@ -146,7 +146,7 @@
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>
               <span class="i18n" data-lang="en">Code</span><span class="i18n" data-lang="zh">代码</span>
             </a>
-            <a href="https://github.com/anxiangsir/ov2_asset/blob/main/LLaVA_OneVision_2.pdf" target="_blank" rel="noopener noreferrer">
+            <a href="https://cdn.jsdelivr.net/gh/anxiangsir/ov2_asset@main/LLaVA_OneVision_2.pdf" target="_blank" rel="noopener noreferrer">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
               <span class="i18n" data-lang="en">Technical Report</span><span class="i18n" data-lang="zh">技术报告</span>
             </a>
@@ -1490,59 +1490,7 @@
   </td>
 </tr>
 
-            <tr class="bench-row bench-avg" data-bench="__avg_video__">
-    <td>
-      <span class="bench-avg-label">Average</span>
-    </td>
-    <td class="bench-col-hi bench-bold">62.3</td>
-    <td>58.7</td>
-    <td>56.0</td>
-    <td>50.1</td>
-    <td>44.7</td>
-    <td>41.2</td>
-  </tr>
-                </tbody>
-              </table>
-              <div class="bench-footnote">
-                <span class="i18n" data-lang="en">sub = evaluated with subtitles.</span><span class="i18n" data-lang="zh">sub = 使用字幕评测。</span>
-              </div>
-            </div>
-            </div>
-
-            <!-- Sub-table 2: Image (Spatial / Grounding / Perception) -->
-            <div class="bench-card">
-              <div class="bench-caption">
-              <span class="bench-caption-label">
-                <span class="i18n" data-lang="en">Table 1b. Spatial Benchmarks</span><span class="i18n" data-lang="zh">表 1b. 空间基准</span>
-              </span>
-              <span class="bench-tag">Results</span>
-              <span><span class="i18n" data-lang="en">Updated with current evaluation results.</span><span class="i18n" data-lang="zh">已更新为当前评测结果。</span></span>
-            </div>
-              <div class="bench-table-scroll">
-              <table class="bench-table">
-                <colgroup>
-                    <col class="bench-col-name">
-                    <col class="bench-col-spa">
-                    <col class="bench-col-other">
-                    <col class="bench-col-other">
-                    <col class="bench-col-other">
-                    <col class="bench-col-other">
-                    <col class="bench-col-other">
-                  </colgroup>
-                  <thead>
-                  <tr>
-                    <th>Benchmark</th>
-                    <th class="bench-col-hi"><span class="bench-th-name">LLaVA-OneVision-2</span><span class="bench-th-size">8B</span></th>
-                    <th><span class="bench-th-name">Qwen3-VL</span><span class="bench-th-size">8B</span></th>
-                    <th><span class="bench-th-name">Keye-VL-1.5</span><span class="bench-th-size">8B</span></th>
-                    <th><span class="bench-th-name">InternVL-3.5</span><span class="bench-th-size">8B</span></th>
-                    <th><span class="bench-th-name">PLM</span><span class="bench-th-size">8B</span></th>
-                    <th><span class="bench-th-name">LLaVA-OV-1.5</span><span class="bench-th-size">8B</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-
-  <tr class="bench-row bench-section-top" data-bench="vsi-bench">
+  <tr class="bench-row" data-bench="vsi-bench">
     <td>
       <button class="bench-expand" aria-expanded="false" aria-label="Expand">
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg>
@@ -1598,7 +1546,59 @@
     </div>
   </td>
 </tr>
-  <tr class="bench-row" data-bench="crpe">
+            <tr class="bench-row bench-avg" data-bench="__avg_video__">
+    <td>
+      <span class="bench-avg-label">Average</span>
+    </td>
+    <td class="bench-col-hi bench-bold">62.5</td>
+    <td>58.2</td>
+    <td>53.6</td>
+    <td>50.3</td>
+    <td>43.0</td>
+    <td>40.1</td>
+  </tr>
+                </tbody>
+              </table>
+              <div class="bench-footnote">
+                <span class="i18n" data-lang="en">sub = evaluated with subtitles.</span><span class="i18n" data-lang="zh">sub = 使用字幕评测。</span>
+              </div>
+            </div>
+            </div>
+
+            <!-- Sub-table 2: Image (Spatial / Grounding / Perception) -->
+            <div class="bench-card">
+              <div class="bench-caption">
+              <span class="bench-caption-label">
+                <span class="i18n" data-lang="en">Table 1b. Spatial Benchmarks</span><span class="i18n" data-lang="zh">表 1b. 空间基准</span>
+              </span>
+              <span class="bench-tag">Results</span>
+              <span><span class="i18n" data-lang="en">Updated with current evaluation results.</span><span class="i18n" data-lang="zh">已更新为当前评测结果。</span></span>
+            </div>
+              <div class="bench-table-scroll">
+              <table class="bench-table">
+                <colgroup>
+                    <col class="bench-col-name">
+                    <col class="bench-col-spa">
+                    <col class="bench-col-other">
+                    <col class="bench-col-other">
+                    <col class="bench-col-other">
+                    <col class="bench-col-other">
+                    <col class="bench-col-other">
+                  </colgroup>
+                  <thead>
+                  <tr>
+                    <th>Benchmark</th>
+                    <th class="bench-col-hi"><span class="bench-th-name">LLaVA-OneVision-2</span><span class="bench-th-size">8B</span></th>
+                    <th><span class="bench-th-name">Qwen3-VL</span><span class="bench-th-size">8B</span></th>
+                    <th><span class="bench-th-name">Keye-VL-1.5</span><span class="bench-th-size">8B</span></th>
+                    <th><span class="bench-th-name">InternVL-3.5</span><span class="bench-th-size">8B</span></th>
+                    <th><span class="bench-th-name">PLM</span><span class="bench-th-size">8B</span></th>
+                    <th><span class="bench-th-name">LLaVA-OV-1.5</span><span class="bench-th-size">8B</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+
+  <tr class="bench-row bench-section-top" data-bench="crpe">
     <td>
       <button class="bench-expand" aria-expanded="false" aria-label="Expand">
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg>
@@ -1908,12 +1908,12 @@
     <td>
       <span class="bench-avg-label">Average</span>
     </td>
-    <td class="bench-col-hi bench-bold">63.6</td>
-    <td>57.5</td>
-    <td>48.7</td>
-    <td>52.8</td>
-    <td>46.4</td>
-    <td>48.1</td>
+    <td class="bench-col-hi bench-bold">63.5</td>
+    <td>58.2</td>
+    <td>51.3</td>
+    <td>53.0</td>
+    <td>49.5</td>
+    <td>51.1</td>
   </tr>
                 </tbody>
               </table>
@@ -2742,13 +2742,13 @@
             <span class="i18n" data-lang="en">Visual Encoder Pretraining (OneVision-Encoder)</span><span class="i18n" data-lang="zh">视觉编码器预训练（OneVision-Encoder）</span>
           </h3>
           <p class="i18n" data-lang="en">
-            <strong>OneVision-Encoder</strong> extends native-resolution training to longer aspect ratios and pushes context capacity for high-density documents and frame-rich video. Architectural details — TBD.
+            <strong>OneVision-Encoder</strong> extends native-resolution training to longer aspect ratios and pushes context capacity for high-density documents and frame-rich video. See the architecture overview below.
           </p>
           <p class="i18n" data-lang="zh">
-            <strong>OneVision-Encoder</strong> 将原生分辨率训练扩展至更长宽高比，并提升长文档和高帧率视频场景的上下文容量。具体架构待补充。
+            <strong>OneVision-Encoder</strong> 将原生分辨率训练扩展至更长宽高比，并提升长文档和高帧率视频场景的上下文容量。完整架构示意见下方。
           </p>
           <div class="image-frame">
-            <div class="placeholder-figure"><span>[ OneVision-Encoder Architecture ]</span></div>
+            <img src="./assets/arch.png" alt="OneVision-Encoder architecture overview" style="width:100%;height:auto;display:block;">
             <div class="figure-caption">
               <span class="i18n" data-lang="en">Figure 7. OneVision-Encoder architecture overview.</span>
               <span class="i18n" data-lang="zh">图 7. OneVision-Encoder 架构概览。</span>
